@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Scratch 学习 · 小书斋</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .stage-page { position:relative; z-index:1; min-height:100vh; display:flex; flex-direction:column; }
+    .stage-main { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 48px; }
+    .stage-back { align-self:flex-start; margin-bottom:24px; }
+    .back-link { font-size:14px; color:var(--text-muted); cursor:pointer; transition:color var(--transition-fast); display:flex; align-items:center; gap:6px; }
+    .back-link::before { content:'\2190'; font-size:16px; }
+    .back-link:hover { color:var(--gold); }
+    .stage-title { font-family:var(--font-serif); font-size:28px; font-weight:700; letter-spacing:4px; margin-bottom:12px; text-align:center; }
+    .stage-subtitle { font-size:14px; color:var(--text-muted); letter-spacing:2px; margin-bottom:56px; text-align:center; }
+    .stages-row { display:flex; gap:36px; flex-wrap:wrap; justify-content:center; max-width:900px; width:100%; }
+    .stage-card { width:320px; height:240px; background:var(--bg-card); backdrop-filter:blur(16px); border:1px solid var(--border); border-radius:var(--radius); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all var(--transition); position:relative; overflow:hidden; animation:card-in .5s cubic-bezier(.4,0,.2,1) both; }
+    .stage-card:nth-child(1) { animation-delay:.1s; }
+    .stage-card:nth-child(2) { animation-delay:.25s; }
+    .stage-card::before { content:''; position:absolute; top:0; left:-100%; width:60%; height:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent); transition:left .7s ease; pointer-events:none; }
+    .stage-card::after { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--c-scratch); opacity:0; transition:opacity var(--transition); }
+    .stage-card:hover { transform:translateY(-10px); background:var(--bg-card-hover); border-color:var(--c-scratch); box-shadow:var(--shadow-hover),0 0 40px var(--c-scratch-glow); }
+    .stage-card:hover::before { left:130%; }
+    .stage-card:hover::after { opacity:1; }
+    .stage-card-content { text-align:center; z-index:1; }
+    .stage-card-icon { font-size:56px; margin-bottom:16px; transition:transform var(--transition); }
+    .stage-card:hover .stage-card-icon { transform:scale(1.15) translateY(-4px); }
+    .stage-card-label { font-family:var(--font-serif); font-size:24px; font-weight:700; letter-spacing:3px; transition:color var(--transition); }
+    .stage-card:hover .stage-card-label { color:var(--c-scratch); }
+    .stage-card-hint { margin-top:10px; font-size:13px; color:transparent; letter-spacing:2px; transition:color var(--transition); }
+    .stage-card:hover .stage-card-hint { color:var(--c-scratch); }
+    .stage-card-hint::after { content:' \2192'; transition:transform var(--transition); }
+    .stage-card:hover .stage-card-hint::after { transform:translateX(4px); }
+    @media (max-width:768px) {
+      .stage-main { padding:24px; }
+      .stage-card { width:100%; max-width:320px; height:200px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-canvas">
+    <div class="bg-grid"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+  </div>
+
+  <div class="stage-page">
+    <header class="top-bar">
+      <div class="brand-mini">小书斋</div>
+      <div class="nav-right">
+        <div class="welcome">Scratch 编程<span class="admin-badge" id="adminBadge" style="display:none;">管理员</span></div>
+        <button class="btn-logout" id="btnBack">返回首页</button>
+      </div>
+    </header>
+
+    <main class="stage-main">
+      <h1 class="stage-title">Scratch 学习</h1>
+      <p class="stage-subtitle">图形化编程 · 从零开始</p>
+      <div class="stages-row">
+        <div class="stage-card" data-stage="A">
+          <div class="stage-card-content">
+            <div class="stage-card-icon">🧩</div>
+            <div class="stage-card-label">A 阶段</div>
+            <div class="stage-card-hint">进入学习</div>
+          </div>
+        </div>
+        <div class="stage-card" data-stage="B">
+          <div class="stage-card-content">
+            <div class="stage-card-icon">🎯</div>
+            <div class="stage-card-label">B 阶段</div>
+            <div class="stage-card-hint">进入学习</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /* 登录检查 */
+    (function(){
+      try { var s=JSON.parse(localStorage.getItem('xz_session')); if(!s) throw 1; }
+      catch(e){ window.location.href='index.html'; return; }
+
+      if(s.isAdmin) {
+        var b=document.getElementById('adminBadge');
+        if(b) b.style.display='inline';
+      }
+
+      document.getElementById('btnBack').addEventListener('click',function(){
+        window.location.href='dashboard.html';
+      });
+
+      document.querySelectorAll('.stage-card').forEach(function(card){
+        card.addEventListener('click',function(){
+          var stage=card.getAttribute('data-stage');
+          window.location.href='scratch_stage.html?stage='+stage;
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

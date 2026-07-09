@@ -1,0 +1,42 @@
+# PPT 原始文件（不上传到 GitHub，只上传转换后的图片）
+ppts/**/*.pptx
+ppts/**/*.ppt
+# PPT 图片目录（图片存到 xiaoshuzhai-data 仓库，通过 jsDelivr CDN 访问）
+ppts/**/*_images/
+ppts/**/_thumbs/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地服务器相关（纯静态模式不需要）
+server.py
+server.log
+watchdog.ps1
+watchdog.log
+start_server.vbs
+start_watchdog.vbs
+start.bat
+start_server.bat
+run_tunnel.vbs
+server_start.ps1
+tunnel.log
+cloudflared.exe
+nul
+_make_bat.py
+启动网站.bat
+
+# Docker/Render 部署（纯静态模式不需要）
+Dockerfile
+render.yaml
+.dockerignore
+
+# WorkBuddy 元数据
+.workbuddy/
+
+# 数据仓库本地克隆
+.data-repo/
+
+# 账号本地存储（旧版，已迁移到 data/accounts.json）
+/accounts.json

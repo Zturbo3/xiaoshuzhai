@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>课件查看 · 小书斋</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    :root {
+      --bg-primary: #0a0a14;
+      --bg-secondary: #12121f;
+      --gold: #e8c07d;
+      --gold-bright: #f5d499;
+      --text-primary: #f0f0f0;
+      --text-secondary: #a0a0b0;
+      --text-muted: #606070;
+      --font-sans: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-serif: 'Noto Serif SC', serif;
+    }
+    html, body {
+      height:100%;
+      font-family:var(--font-sans);
+      background:var(--bg-primary);
+      color:var(--text-primary);
+      overflow:hidden;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+    .viewer { display:flex; flex-direction:column; height:100vh; }
+    .viewer-bar {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 24px; height:52px;
+      border-bottom:1px solid rgba(232,192,125,.12);
+      background:rgba(10,10,20,.7); backdrop-filter:blur(12px);
+      flex-shrink:0; z-index:10;
+    }
+    .viewer-bar .left { display:flex; align-items:center; gap:16px; min-width:0; }
+    .viewer-bar .title { font-size:14px; font-weight:500; letter-spacing:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .viewer-bar .back-btn {
+      padding:5px 14px; font-size:12px; letter-spacing:1px;
+      border-radius:6px; border:1px solid rgba(232,192,125,.2);
+      background:transparent; color:var(--text-primary); cursor:pointer;
+      transition:all .2s; white-space:nowrap;
+    }
+    .viewer-bar .back-btn:hover { border-color:var(--gold); color:var(--gold); }
+    .viewer-bar .actions { display:flex; align-items:center; gap:8px; }
+
+    .slide-area { flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; background:var(--bg-primary); }
+
+    .thumb-rail {
+      width:140px; height:100%; overflow-y:auto; overflow-x:hidden;
+      border-right:1px solid rgba(232,192,125,.08); background:rgba(10,10,20,.4);
+      flex-shrink:0; padding:12px 0; display:flex; flex-direction:column; align-items:center; gap:10px;
+    }
+    .thumb-rail::-webkit-scrollbar { width:4px; }
+    .thumb-rail::-webkit-scrollbar-thumb { background:rgba(232,192,125,.2); border-radius:2px; }
+    .thumb { width:116px; border:2px solid transparent; border-radius:4px; cursor:pointer; overflow:hidden; transition:border-color .2s; position:relative; }
+    .thumb-img { width:100%; height:65px; object-fit:cover; display:block; }
+    .thumb:hover { border-color:rgba(232,192,125,.4); }
+    .thumb.active { border-color:var(--gold); }
+    .thumb .num { position:absolute; top:4px; left:4px; background:rgba(0,0,0,.7); color:var(--gold); font-size:10px; padding:1px 6px; border-radius:3px; }
+
+    .slide-main { flex:1; display:flex; align-items:center; justify-content:center; height:100%; overflow:hidden; position:relative; }
+    .slide-img { max-width:100%; max-height:100%; object-fit:contain; box-shadow:0 8px 40px rgba(0,0,0,.6); transition:transform .3s ease; -webkit-user-drag:none; pointer-events:none; }
+    .slide-loading { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:12px; }
+    .slide-loading .spinner { width:32px; height:32px; border:3px solid rgba(232,192,125,.15); border-top-color:var(--gold); border-radius:50%; animation:spin .8s linear infinite; }
+
+    .state-msg { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; color:var(--text-muted); font-size:14px; letter-spacing:1px; text-align:center; }
+    .state-msg .icon { font-size:32px; }
+    .state-msg.error { color:#ff6b6b; }
+    .spinner { width:36px; height:36px; border:3px solid rgba(232,192,125,.15); border-top-color:var(--gold); border-radius:50%; animation:spin .8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .viewer-controls {
+      display:flex; align-items:center; justify-content:center; gap:16px;
+      padding:10px 24px; border-top:1px solid rgba(232,192,125,.12);
+      background:rgba(10,10,20,.7); backdrop-filter:blur(12px); flex-shrink:0;
+    }
+    .viewer-controls button {
+      width:40px; height:40px; display:flex; align-items:center; justify-content:center;
+      font-size:18px; border:1px solid rgba(232,192,125,.2); border-radius:50%;
+      background:transparent; color:var(--text-primary); cursor:pointer; transition:all .2s;
+    }
+    .viewer-controls button:hover { border-color:var(--gold); color:var(--gold); }
+    .viewer-controls button:disabled { opacity:.3; cursor:default; }
+    .viewer-controls .page-info { font-size:13px; color:var(--text-secondary); min-width:80px; text-align:center; letter-spacing:.5px; }
+    .viewer-controls .page-info .current { color:var(--gold); font-weight:500; }
+    .viewer-controls .divider { width:1px; height:24px; background:rgba(232,192,125,.12); }
+    .viewer-controls .zoom-info { font-size:12px; color:var(--text-muted); min-width:48px; text-align:center; }
+
+    .watermark-layer { position:fixed; inset:0; pointer-events:none; z-index:5; overflow:hidden; }
+    .watermark-layer .wm { position:absolute; font-family:var(--font-serif); font-size:16px; color:rgba(255,255,255,.06); white-space:nowrap; transform:rotate(-30deg); }
+
+    @media (max-width:768px) {
+      .thumb-rail { width:80px; }
+      .thumb { width:60px; }
+      .viewer-bar { padding:0 12px; }
+      .viewer-bar .title { font-size:12px; }
+      .viewer-controls { gap:8px; padding:8px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="viewer">
+    <div class="viewer-bar">
+      <div class="left">
+        <button class="back-btn" id="btnBack">← 返回</button>
+        <div class="title" id="pptTitle">加载中...</div>
+      </div>
+      <div class="actions">
+        <span style="font-size:12px;color:var(--text-muted);">小书斋编程学习平台</span>
+      </div>
+    </div>
+
+    <div class="slide-area">
+      <div class="thumb-rail" id="thumbRail"></div>
+      <div class="slide-main" id="slideMain">
+        <div class="state-msg" id="loadingState">
+          <div class="spinner"></div>
+          <div>正在加载课件...</div>
+        </div>
+        <div class="slide-loading" id="slideLoading" style="display:none;">
+          <div class="spinner"></div>
+          <div style="font-size:12px;color:var(--text-muted);">加载中...</div>
+        </div>
+        <img class="slide-img" id="slideImg" style="display:none;" alt="幻灯片">
+      </div>
+    </div>
+
+    <div class="viewer-controls">
+      <button id="btnFirst" title="第一页">⏮</button>
+      <button id="btnPrev" title="上一页 (←)">‹</button>
+      <div class="page-info">
+        <span class="current" id="curPage">0</span> / <span id="totalPage">0</span>
+      </div>
+      <button id="btnNext" title="下一页 (→)">›</button>
+      <button id="btnLast" title="最后一页">⏭</button>
+      <div class="divider"></div>
+      <button id="btnZoomOut" title="缩小">−</button>
+      <span class="zoom-info" id="zoomInfo">100%</span>
+      <button id="btnZoomIn" title="放大">+</button>
+      <button id="btnFit" title="适应窗口">⊡</button>
+    </div>
+  </div>
+
+  <div class="watermark-layer" id="watermarkLayer"></div>
+
+  <script>
+    // ── CDN 配置：GitHub Pages 自动使用 jsDelivr CDN ──
+    var CDN_BASE = '';
+    (function() {
+      var host = window.location.hostname;
+      if (host.includes('github.io') || host.includes('github')) {
+        // GitHub Pages 部署 → 图片从 CDN 加载
+        CDN_BASE = 'https://cdn.jsdelivr.net/gh/Zturbo3/xiaoshuzhai-data@main/';
+      }
+      // 本地 / loca.lt / 其他 → CDN_BASE 为空，使用本地相对路径
+    })();
+
+    // ── 版权保护 ──
+    document.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; });
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && ['s','p','c','u'].includes(e.key.toLowerCase())) { e.preventDefault(); return false; }
+      if (e.key === 'F12') { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.shiftKey && e.key === 'I') { e.preventDefault(); return false; }
+    });
+    document.addEventListener('dragstart', function(e) { e.preventDefault(); return false; });
+
+    // ── 状态变量 ──
+    var slides = [];
+    var thumbs = [];
+    var currentSlide = 0;
+    var zoomLevel = 1.0;
+
+    var loadingState = document.getElementById('loadingState');
+    var slideImg = document.getElementById('slideImg');
+    var slideMain = document.getElementById('slideMain');
+    var thumbRail = document.getElementById('thumbRail');
+    var curPageEl = document.getElementById('curPage');
+    var totalPageEl = document.getElementById('totalPage');
+    var zoomInfoEl = document.getElementById('zoomInfo');
+    var pptTitleEl = document.getElementById('pptTitle');
+
+    // ── URL 参数 ──
+    function getQueryParam(name) {
+      var params = new URLSearchParams(window.location.search);
+      return params.get(name) || '';
+    }
+
+    // ── 生成水印 ──
+    function generateWatermarks() {
+      var layer = document.getElementById('watermarkLayer');
+      layer.innerHTML = '';
+      var cols = 6, rows = 8;
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          var wm = document.createElement('div');
+          wm.className = 'wm';
+          wm.textContent = '小书斋编程学习平台';
+          wm.style.left = (c * 280 + (r % 2) * 140) + 'px';
+          wm.style.top = (r * 120) + 'px';
+          layer.appendChild(wm);
+        }
+      }
+    }
+
+    // ── 从静态 manifest.json 加载幻灯片 ──
+    async function loadSlides() {
+      var cat = getQueryParam('cat') || 'scratch';
+      var stage = getQueryParam('stage') || 'A';
+      var idx = parseInt(getQueryParam('idx') || '0');
+      var name = getQueryParam('name');
+
+      if (name) {
+        pptTitleEl.textContent = decodeURIComponent(name);
+      }
+
+      // 返回按钮
+      document.getElementById('btnBack').addEventListener('click', function() {
+        var catConfig = {
+          scratch: 'scratch.html', python: 'python.html', cpp: 'cpp.html'
+        };
+        window.location.href = catConfig[cat] || 'scratch.html';
+      });
+
+      try {
+        var resp = await fetch('ppts/manifest.json');
+        var manifest = await resp.json();
+
+        var files = (manifest[cat] && manifest[cat][stage]) || [];
+        if (idx < 0 || idx >= files.length) {
+          showState('error', '课件不存在');
+          return;
+        }
+
+        var file = files[idx];
+        slides = (file.slides || []).map(function(p) { return CDN_BASE + p; });
+        thumbs = (file.thumbs || file.slides || []).map(function(p) { return CDN_BASE + p; });
+
+        if (slides.length === 0) {
+          showState('error', '该课件暂无图片数据');
+          return;
+        }
+
+        totalPageEl.textContent = slides.length;
+        currentSlide = 0;
+        generateThumbs();
+        showSlide(0);
+
+      } catch (err) {
+        showState('error', '网络错误：' + err.message);
+      }
+    }
+
+    // ── 生成缩略图（使用小图 thumbs）──
+    function generateThumbs() {
+      thumbRail.innerHTML = '';
+      thumbs.forEach(function(thumbPath, idx) {
+        var thumb = document.createElement('div');
+        thumb.className = 'thumb' + (idx === 0 ? ' active' : '');
+        thumb.dataset.index = idx;
+        thumb.onclick = function() { goToSlide(idx); };
+
+        var img = document.createElement('img');
+        img.className = 'thumb-img';
+        img.src = thumbPath;
+        img.alt = '第' + (idx + 1) + '页';
+        img.draggable = false;
+
+        var num = document.createElement('div');
+        num.className = 'num';
+        num.textContent = (idx + 1);
+
+        thumb.appendChild(img);
+        thumb.appendChild(num);
+        thumbRail.appendChild(thumb);
+      });
+    }
+
+    // ── 图片预加载 ──
+    var preloadCache = {};
+    function preloadSlide(idx) {
+      if (idx < 0 || idx >= slides.length || preloadCache[idx]) return;
+      var img = new Image();
+      img.src = slides[idx];
+      preloadCache[idx] = img;
+    }
+    function preloadAdjacent(idx) {
+      preloadSlide(idx - 1);
+      preloadSlide(idx + 1);
+    }
+
+    function showSlide(idx) {
+      if (idx < 0 || idx >= slides.length) return;
+      currentSlide = idx;
+      curPageEl.textContent = idx + 1;
+
+      // 显示加载动画
+      slideImg.style.display = 'none';
+      var loadingEl = document.getElementById('slideLoading');
+      if (loadingEl) loadingEl.style.display = 'flex';
+
+      slideImg.src = slides[idx];
+
+      var thumbs = thumbRail.querySelectorAll('.thumb');
+      thumbs.forEach(function(t, i) { t.classList.toggle('active', i === idx); });
+      if (thumbs[idx]) { thumbs[idx].scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+      updateButtons();
+      resetZoom();
+      preloadAdjacent(idx);
+    }
+
+    function nextSlide() { if (currentSlide < slides.length - 1) showSlide(currentSlide + 1); }
+    function prevSlide() { if (currentSlide > 0) showSlide(currentSlide - 1); }
+    function goToSlide(target) {
+      if (target === -1) target = slides.length - 1;
+      showSlide(target);
+    }
+
+    function zoom(delta) {
+      zoomLevel = Math.max(0.3, Math.min(3.0, zoomLevel + delta));
+      applyZoom();
+    }
+    function applyZoom() {
+      slideImg.style.transform = 'scale(' + zoomLevel + ')';
+      zoomInfoEl.textContent = Math.round(zoomLevel * 100) + '%';
+    }
+    function resetZoom() { zoomLevel = 1.0; applyZoom(); }
+
+    function updateButtons() {
+      document.getElementById('btnPrev').disabled = currentSlide === 0;
+      document.getElementById('btnFirst').disabled = currentSlide === 0;
+      document.getElementById('btnNext').disabled = currentSlide === slides.length - 1;
+      document.getElementById('btnLast').disabled = currentSlide === slides.length - 1;
+    }
+
+    function showState(type, msg) {
+      slideImg.style.display = 'none';
+      loadingState.style.display = 'flex';
+      loadingState.className = 'state-msg' + (type === 'error' ? ' error' : '');
+      loadingState.innerHTML = '<div class="icon">' + (type === 'error' ? '⚠' : '') + '</div><div>' + msg + '</div>';
+    }
+
+    // 按钮事件
+    document.getElementById('btnFirst').onclick = function() { goToSlide(0); };
+    document.getElementById('btnPrev').onclick = function() { prevSlide(); };
+    document.getElementById('btnNext').onclick = function() { nextSlide(); };
+    document.getElementById('btnLast').onclick = function() { goToSlide(-1); };
+    document.getElementById('btnZoomOut').onclick = function() { zoom(-0.1); };
+    document.getElementById('btnZoomIn').onclick = function() { zoom(0.1); };
+    document.getElementById('btnFit').onclick = function() { resetZoom(); };
+
+    // 图片加载完成
+    slideImg.addEventListener('load', function() {
+      var loadingEl = document.getElementById('slideLoading');
+      if (loadingEl) loadingEl.style.display = 'none';
+      slideImg.style.display = 'block';
+      loadingState.style.display = 'none';
+    });
+
+    // 键盘导航
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prevSlide(); }
+      else if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+      else if (e.key === 'Home') { e.preventDefault(); goToSlide(0); }
+      else if (e.key === 'End') { e.preventDefault(); goToSlide(-1); }
+      else if (e.key === '=' || e.key === '+') { e.preventDefault(); zoom(0.1); }
+      else if (e.key === '-') { e.preventDefault(); zoom(-0.1); }
+      else if (e.key === '0') { e.preventDefault(); resetZoom(); }
+    });
+
+    // 鼠标滚轮缩放
+    slideMain.addEventListener('wheel', function(e) {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY > 0 ? -0.1 : 0.1); }
+    });
+
+    // 初始化
+    generateWatermarks();
+    loadSlides();
+  </script>
+</body>
+</html>

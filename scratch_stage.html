@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>课件列表 · 小书斋</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .list-page { position:relative; z-index:1; min-height:100vh; display:flex; flex-direction:column; }
+    .list-main { flex:1; padding:40px 48px; max-width:960px; margin:0 auto; width:100%; }
+    .list-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:40px; flex-wrap:wrap; gap:16px; }
+    .list-title { font-family:var(--font-serif); font-size:24px; letter-spacing:3px; }
+    .list-title span { color:var(--c-scratch); }
+    .list-meta { font-size:13px; color:var(--text-muted); }
+    .btn-upload { padding:10px 24px; font-size:13px; font-weight:500; letter-spacing:1px; color:#1a1a2e; background:linear-gradient(135deg,var(--gold-bright),var(--gold)); border:none; border-radius:var(--radius-sm); cursor:pointer; transition:all var(--transition); display:none; }
+    .btn-upload:hover { box-shadow:0 6px 20px var(--gold-glow); transform:translateY(-1px); }
+    .empty-state { text-align:center; padding:80px 40px; }
+    .empty-icon { font-size:64px; margin-bottom:20px; opacity:.5; }
+    .empty-text { font-size:15px; color:var(--text-muted); letter-spacing:1px; }
+    .ppt-list { display:flex; flex-direction:column; gap:12px; }
+    .ppt-item { display:flex; align-items:center; padding:18px 24px; background:var(--bg-card); backdrop-filter:blur(12px); border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; transition:all var(--transition); }
+    .ppt-item:hover { border-color:var(--c-scratch); background:var(--bg-card-hover); transform:translateX(4px); box-shadow:0 0 24px var(--c-scratch-glow); }
+    .ppt-icon { margin-right:18px; font-size:36px; flex-shrink:0; transition:transform var(--transition); }
+    .ppt-item:hover .ppt-icon { transform:scale(1.1); }
+    .ppt-info { flex:1; min-width:0; }
+    .ppt-name { font-size:16px; font-weight:500; letter-spacing:1px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ppt-meta { font-size:12px; color:var(--text-muted); }
+    .ppt-actions { display:flex; gap:8px; flex-shrink:0; }
+    .btn-sm { padding:6px 14px; font-size:12px; border-radius:var(--radius-sm); border:none; cursor:pointer; transition:all var(--transition-fast); letter-spacing:1px; }
+    .btn-view { color:var(--c-scratch); background:rgba(240,160,64,.1); border:1px solid rgba(240,160,64,.25); }
+    .btn-view:hover { background:rgba(240,160,64,.2); }
+    .admin-tip { text-align:center; padding:12px; font-size:12px; color:var(--text-muted); background:rgba(232,192,125,.05); border:1px dashed rgba(232,192,125,.15); border-radius:var(--radius-sm); margin-top:16px; display:none; }
+    @media (max-width:768px) {
+      .list-main { padding:24px; }
+      .ppt-item { flex-wrap:wrap; }
+      .ppt-actions { width:100%; margin-top:12px; justify-content:flex-end; }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-canvas">
+    <div class="bg-grid"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+  </div>
+
+  <div class="list-page">
+    <header class="top-bar">
+      <div class="brand-mini">小书斋</div>
+      <div class="nav-right">
+        <div class="welcome"><span id="catName">Scratch</span> · <span id="stageLabel">阶段</span><span class="admin-badge" id="adminBadge" style="display:none;">管理员</span></div>
+        <button class="btn-logout" id="btnBack">返回选择</button>
+      </div>
+    </header>
+
+    <main class="list-main">
+      <div class="list-header">
+        <div>
+          <h1 class="list-title"><span id="catName2">Scratch</span> · <span id="stageTitle">阶段</span></h1>
+          <div class="list-meta" id="listMeta"></div>
+        </div>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">📂</div>
+        <div class="empty-text">暂无可学习课件</div>
+      </div>
+
+      <div class="ppt-list" id="pptList"></div>
+
+      <div class="admin-tip" id="adminTip">
+        💡 管理员模式：请使用本地「上传工具」添加/删除课件
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function(){
+      'use strict';
+
+      var session, isAdmin;
+      try {
+        session = JSON.parse(localStorage.getItem('xz_session'));
+        if (!session) throw 1;
+      } catch(e) { window.location.href='index.html'; return; }
+
+      isAdmin = !!session.isAdmin;
+
+      var urlParams = new URLSearchParams(window.location.search);
+      var stage = urlParams.get('stage') || 'A';
+      var cat = urlParams.get('cat') || 'scratch';
+      var category = cat;
+
+      var catConfig = {
+        scratch: { name: 'Scratch', color: '#f0a040', glow: 'rgba(240,160,64,0.25)', back: 'scratch.html', suffix: ' 阶段' },
+        python:  { name: 'Python',  color: '#4a9eff', glow: 'rgba(74,158,255,0.25)', back: 'python.html',  suffix: '' },
+        cpp:     { name: 'C++',     color: '#b07de8', glow: 'rgba(176,125,232,0.25)', back: 'cpp.html',     suffix: '' }
+      };
+      var cfg = catConfig[cat] || catConfig.scratch;
+
+      document.documentElement.style.setProperty('--c-scratch', cfg.color);
+      document.documentElement.style.setProperty('--c-scratch-glow', cfg.glow);
+
+      if (isAdmin) {
+        var b = document.getElementById('adminBadge');
+        if (b) b.style.display = 'inline';
+        var tip = document.getElementById('adminTip');
+        if (tip) tip.style.display = 'block';
+      }
+
+      document.getElementById('catName').textContent = cfg.name;
+      document.getElementById('catName2').textContent = cfg.name;
+      document.getElementById('stageTitle').textContent = stage + cfg.suffix;
+      document.getElementById('stageLabel').textContent = stage + cfg.suffix;
+
+      document.getElementById('btnBack').addEventListener('click', function(){
+        window.location.href = cfg.back;
+      });
+
+      /* 从静态 manifest.json 加载课件列表 */
+      function loadList() {
+        fetch('ppts/manifest.json')
+          .then(function(r){ return r.json(); })
+          .then(function(manifest){
+            var files = (manifest[category] && manifest[category][stage]) || [];
+            renderList(files);
+          })
+          .catch(function(e){ console.error(e); });
+      }
+
+      function renderList(files) {
+        var listEl = document.getElementById('pptList');
+        var emptyEl = document.getElementById('emptyState');
+        var metaEl = document.getElementById('listMeta');
+
+        if (files.length === 0) {
+          listEl.innerHTML = '';
+          emptyEl.style.display = 'block';
+          metaEl.textContent = '';
+          return;
+        }
+
+        emptyEl.style.display = 'none';
+        metaEl.textContent = '共 ' + files.length + ' 个课件';
+
+        listEl.innerHTML = files.map(function(f, i){
+          var slideCount = f.slideCount || (f.slides ? f.slides.length : 0);
+          return '<div class="ppt-item" data-index="' + i + '" data-name="' + escapeAttr(f.name || '') + '" data-slides-index="' + i + '">'
+            + '<div class="ppt-icon">' + getIcon(i) + '</div>'
+            + '<div class="ppt-info">'
+            + '<div class="ppt-name">' + escapeHtml(f.name || f.file) + '</div>'
+            + '<div class="ppt-meta">' + (slideCount ? slideCount + ' 页' : '') + '</div>'
+            + '</div>'
+            + '<div class="ppt-actions">'
+            + '<button class="btn-sm btn-view" data-name="' + escapeAttr(f.name || '') + '" data-index="' + i + '">查看</button>'
+            + '</div>'
+            + '</div>';
+        }).join('');
+
+        /* 事件绑定 */
+        listEl.querySelectorAll('[data-action="view"], .btn-view').forEach(function(btn){
+          btn.addEventListener('click', function(e){
+            e.stopPropagation();
+            var name = btn.getAttribute('data-name') || '';
+            var idx = parseInt(btn.getAttribute('data-index') || '0');
+            goToViewer(cat, stage, idx, name);
+          });
+        });
+
+        listEl.querySelectorAll('.ppt-item').forEach(function(item){
+          item.addEventListener('click', function(){
+            var name = item.getAttribute('data-name') || '';
+            var idx = parseInt(item.getAttribute('data-slides-index') || '0');
+            goToViewer(cat, stage, idx, name);
+          });
+        });
+      }
+
+      function goToViewer(category, stage, index, name) {
+        var params = new URLSearchParams();
+        params.set('cat', category);
+        params.set('stage', stage);
+        params.set('idx', index);
+        params.set('name', name);
+        window.location.href = 'ppt_viewer.html?' + params.toString();
+      }
+
+      function getIcon(i) {
+        var icons = ['📘','📙','📗','📕','📒','📓','📔','📖'];
+        return icons[i % icons.length];
+      }
+
+      function escapeHtml(s) {
+        return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+      function escapeAttr(s) {
+        return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }
+
+      loadList();
+    })();
+  </script>
+</body>
+</html>

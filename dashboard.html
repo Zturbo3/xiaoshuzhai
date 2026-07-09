@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小书斋 · 学习中心</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- 动画背景 -->
+  <div class="bg-canvas">
+    <div class="bg-grid"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+  </div>
+
+  <!-- 仪表盘 -->
+  <div class="dashboard">
+    <!-- 顶部导航 -->
+    <header class="top-bar">
+      <div class="brand-mini">小书斋</div>
+      <div class="nav-right">
+        <div class="welcome">欢迎回来，<span id="currentUser">同学</span><span class="admin-badge" id="adminBadge" style="display:none;">管理员</span></div>
+        <button class="btn-logout" id="btnLogout">退出登录</button>
+      </div>
+    </header>
+
+    <!-- 主体 -->
+    <main class="dash-main">
+      <h1 class="dash-title">选择你的学习路径</h1>
+      <p class="dash-subtitle">三门编程语言 · 从入门到精通</p>
+
+      <div class="cards-row">
+        <!-- Scratch -->
+        <div class="card" data-card="scratch">
+          <div class="card-icon">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="6" width="15" height="15" rx="3"/>
+              <rect x="27" y="6" width="15" height="15" rx="3"/>
+              <rect x="6" y="27" width="15" height="15" rx="3"/>
+              <rect x="27" y="27" width="15" height="15" rx="3"/>
+              <line x1="21" y1="13.5" x2="27" y2="13.5"/>
+              <line x1="13.5" y1="21" x2="13.5" y2="27"/>
+              <line x1="21" y1="34.5" x2="27" y2="34.5"/>
+              <line x1="34.5" y1="21" x2="34.5" y2="27"/>
+            </svg>
+          </div>
+          <div class="card-title">Scratch 学习</div>
+          <div class="card-desc">图形化积木编程<br>零基础入门首选<br>培养逻辑思维</div>
+          <div class="card-enter">进入学习</div>
+        </div>
+
+        <!-- Python -->
+        <div class="card" data-card="python">
+          <div class="card-icon">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M24 6 C16 6 14 10 14 16 L14 22 L24 22 L24 24 L10 24 C6 24 6 28 6 32 C6 36 8 42 14 42 L24 42 L24 36 L14 36"/>
+              <path d="M24 6 C32 6 34 10 34 16 L34 22 L24 22 M24 24 L38 24 C42 24 42 28 42 32 C42 36 40 42 34 42 L24 42 L24 36 L34 36"/>
+              <circle cx="19" cy="12" r="1.2" fill="currentColor"/>
+              <circle cx="29" cy="36" r="1.2" fill="currentColor"/>
+            </svg>
+          </div>
+          <div class="card-title">Python 学习</div>
+          <div class="card-desc">简洁优雅的代码<br>人工智能首选语言<br>数据科学与自动化</div>
+          <div class="card-enter">进入学习</div>
+        </div>
+
+        <!-- C++ -->
+        <div class="card" data-card="cpp">
+          <div class="card-icon">
+            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 16 10 24 20 32"/>
+              <polyline points="28 16 38 24 28 32"/>
+              <line x1="26" y1="12" x2="22" y2="36" stroke-width="2.5"/>
+              <text x="24" y="46" font-size="6" fill="currentColor" stroke="none" text-anchor="middle" font-family="monospace">C++</text>
+            </svg>
+          </div>
+          <div class="card-title">C++ 学习</div>
+          <div class="card-desc">高性能编程基石<br>竞赛算法核心语言<br>深入理解计算机</div>
+          <div class="card-enter">进入学习</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

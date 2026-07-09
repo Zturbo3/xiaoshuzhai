@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<!-- deploy: 2026-07-05 v2 -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小书斋 · 编程学习平台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- 动画背景 -->
+  <div class="bg-canvas">
+    <div class="bg-grid"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+    <div class="bg-orb"></div>
+  </div>
+
+  <!-- 登录 / 注册 -->
+  <div class="page">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="brand">小书斋</div>
+        <div class="divider"></div>
+        <div class="tagline">编程学习平台</div>
+      </div>
+
+      <!-- 登录表单 -->
+      <form id="loginForm" class="auth-form" style="display:none;">
+        <div class="form-group">
+          <label for="loginUser">账号</label>
+          <input type="text" id="loginUser" placeholder="请输入账号" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPass">密码</label>
+          <input type="password" id="loginPass" placeholder="请输入密码" autocomplete="current-password" required>
+        </div>
+        <div class="auth-error" id="loginError"></div>
+        <button type="submit" class="btn-primary">登 录</button>
+        <div class="auth-toggle">
+          首次使用？<a id="toRegister">创建账号</a>
+        </div>
+      </form>
+
+      <!-- 注册表单 -->
+      <form id="registerForm" class="auth-form" style="display:none;">
+        <div class="form-group">
+          <label for="regKey">注册密钥</label>
+          <input type="password" id="regKey" placeholder="请输入注册密钥" autocomplete="off" required>
+          <div class="field-hint">需要密钥才能注册，请联系管理员获取</div>
+        </div>
+        <div class="form-group">
+          <label for="regUser">设置账号</label>
+          <input type="text" id="regUser" placeholder="自定义你的账号" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="regPass">设置密码</label>
+          <input type="password" id="regPass" placeholder="自定义你的密码" autocomplete="new-password" required>
+        </div>
+        <div class="form-group">
+          <label for="regPass2">确认密码</label>
+          <input type="password" id="regPass2" placeholder="再次输入密码" autocomplete="new-password" required>
+        </div>
+        <div class="form-group form-check">
+          <label class="check-label">
+            <input type="checkbox" name="regIsAdmin" value="1">
+            <span class="check-text">设为管理员</span>
+          </label>
+          <div class="field-hint">管理员可上传、删除 PPT 资料</div>
+        </div>
+        <div class="auth-error" id="regError"></div>
+        <button type="submit" class="btn-primary">创 建 账 号</button>
+        <div class="auth-toggle">
+          已有账号？<a id="toLogin">返回登录</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/auth.js"></script>
+</body>
+</html>
