@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-小书斋编程学习平台 - 课件管理工具 (静态部署版)
+长舟编程学习平台 - 课件管理工具 (静态部署版)
 用法:
   python ppt_manager.py add         <ppt文件路径> <分类> <阶段> [显示名称]
   python ppt_manager.py batch_add   <文件夹路径> <分类> <阶段> [显示名称前缀]
@@ -832,7 +832,7 @@ def cmd_push_data(args):
 def cmd_menu():
     while True:
         print("\n" + "=" * 50)
-        print("    小书斋编程学习平台 - 课件管理工具")
+        print("    长舟编程学习平台 - 课件管理工具")
         print("=" * 50)
         print("  1. 添加课件 (PPT转图片并上传)")
         print("  2. 批量添加课件 (文件夹批量处理)")
