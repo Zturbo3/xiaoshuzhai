@@ -361,6 +361,19 @@
       loadingState.style.display = 'none';
     });
 
+    // 图片加载失败
+    slideImg.addEventListener('error', function() {
+      var loadingEl = document.getElementById('slideLoading');
+      if (loadingEl) loadingEl.style.display = 'none';
+      var failedUrl = slideImg.src || 'unknown';
+      showState('error',
+        '图片加载失败<br><small style="color:var(--text-muted)">' +
+        '图片URL: ' + failedUrl.substring(0, 80) + '...<br>' +
+        'CDN_BASE: ' + (CDN_BASE || '本地模式') + '<br>' +
+        '请检查网络连接，或刷新页面试试</small>'
+      );
+    });
+
     // 键盘导航
     document.addEventListener('keydown', function(e) {
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prevSlide(); }
