@@ -10,10 +10,9 @@
   python ppt_manager.py user       add    <用户名> <密码> [--admin]
   python ppt_manager.py user       delete <用户名>
   python ppt_manager.py user       list
-  python ppt_manager.py push        [提交说明]
-  python ppt_manager.py push_data   [提交说明]   # 仅推送图片到数据仓库
-  python ppt_manager.py init_data                # 首次初始化数据仓库（同步所有现
-有图片）
+  python ppt_manager.py push        [提交说明]   # 推送代码到GitHub + 上传图片到COS
+  python ppt_manager.py push_data   [提交说明]   # 仅推送图片到数据仓库(旧版)
+  python ppt_manager.py init_data                # 首次初始化数据仓库（旧版）
   python ppt_manager.py menu                 # 交互式菜单
 
 分类: scratch | python | cpp
@@ -517,40 +516,134 @@ def cmd_push(args):
     msg = " ".join(args) if args else f"更新于 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
     print("=" * 50)
-    print("  推送到 GitHub")
+    print("  推送到 GitHub + 腾讯云COS")
     print("=" * 50)
 
     main_ok = False
-    data_ok = False
+    cos_ok = False
 
     # 1. 推送主仓库 (代码 + manifest + accounts)
     main_ok = push_main_repo(msg)
 
-    # 2. 同步并推送数据仓库 (PPT 图片)
-    if DATA_REPO_DIR.exists() and (DATA_REPO_DIR / ".git").exists():
-        data_ok = push_data_repo(msg)
-    else:
-        print(f"\n[!] 数据仓库不存在: {DATA_REPO_DIR}")
-        print("   请先运行: git clone https://github.com/Zturbo3/xiaoshuzhai-data.git")
+    # 2. 上传图片到腾讯云COS
+    cos_ok = upload_images_to_cos()
 
     print(f"\n{'='*50}")
-    if main_ok and data_ok:
+    if main_ok and cos_ok:
         print("  推送成功! GitHub Pages 将在 1-2 分钟内更新。")
-    elif main_ok and not data_ok:
-        print("  [!] 主仓库推送成功，但数据仓库推送失败!")
-        print("  课件列表已更新，但部分PPT图片可能无法显示。")
-        print("  请重新运行 push 命令重试数据仓库推送。")
-    elif not main_ok and data_ok:
-        print("  [!] 数据仓库推送成功，但主仓库推送失败!")
+    elif main_ok and not cos_ok:
+        print("  [!] 主仓库推送成功，但COS图片上传失败!")
+        print("  课件列表已更新，但新增PPT图片可能无法显示。")
+        print("  请运行: python cos_uploader.py sync  手动上传图片")
+    elif not main_ok and cos_ok:
+        print("  [!] COS图片上传成功，但主仓库推送失败!")
         print("  PPT图片已上传，但课件列表未更新，网页看不到新课件。")
         print("  请重新运行 push 命令重试主仓库推送。")
     else:
         print("  [!] 推送失败! 网络可能不稳定，请稍后重试。")
         print("  手动重试命令:")
         print(f"    cd \"{SCRIPT_DIR}\" && git push origin main")
-        print(f"    cd \"{DATA_REPO_DIR}\" && git push origin main")
+        print(f"    python cos_uploader.py sync")
     print(f"  网站: https://zturbo3.github.io/xiaoshuzhai/")
     print(f"{'='*50}")
+
+
+def upload_images_to_cos():
+    """上传新增/变更的图片到腾讯云COS"""
+    print("\n[2/2] 上传图片到腾讯云COS...")
+
+    config_file = SCRIPT_DIR / "cos_config.json"
+    if not config_file.exists():
+        print("  cos_config.json 不存在，跳过COS上传")
+        print("  如需使用COS，请运行: python cos_uploader.py setup")
+        return True  # 不视为失败，兼容旧模式
+
+    try:
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"  读取配置失败: {e}")
+        return False
+
+    if not config.get("secret_id") or not config.get("bucket"):
+        print("  cos_config.json 未配置完整，跳过COS上传")
+        print("  如需使用COS，请运行: python cos_uploader.py setup")
+        return True  # 兼容旧模式
+
+    try:
+        from qcloud_cos import CosConfig, CosS3Client
+    except ImportError:
+        print("  腾讯云COS SDK 未安装，正在安装...")
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "cos-python-sdk-v5"],
+            capture_output=True, encoding="utf-8", errors="replace"
+        )
+        if result.returncode != 0:
+            print(f"  安装失败: {result.stderr}")
+            return False
+        from qcloud_cos import CosConfig, CosS3Client
+
+    try:
+        cos_config = CosConfig(
+            Region=config["region"],
+            SecretId=config["secret_id"],
+            SecretKey=config["secret_key"],
+            Scheme="https"
+        )
+        client = CosS3Client(cos_config)
+        bucket = config["bucket"]
+    except Exception as e:
+        print(f"  COS连接失败: {e}")
+        return False
+
+    # 找到所有图片目录，上传新增文件
+    image_dirs = list(PPTS_DIR.glob("*/*/*_images"))
+    if not image_dirs:
+        print("  没有需要上传的图片目录")
+        return True
+
+    print(f"  扫描 {len(image_dirs)} 个图片目录...")
+
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    uploaded = 0
+    skipped = 0
+    failed = 0
+
+    for img_dir in image_dirs:
+        rel_dir = img_dir.relative_to(PPTS_DIR)
+        cos_prefix = "ppts/" + str(rel_dir).replace("\\", "/")
+
+        for fpath in img_dir.rglob("*"):
+            if not fpath.is_file() or fpath.suffix.lower() not in IMAGE_EXTS:
+                continue
+
+            rel_path = fpath.relative_to(PPTS_DIR)
+            cos_key = "ppts/" + str(rel_path).replace("\\", "/")
+
+            try:
+                # 检查是否已存在
+                try:
+                    client.head_object(Bucket=bucket, Key=cos_key)
+                    skipped += 1
+                    continue
+                except Exception:
+                    pass
+
+                client.upload_file(
+                    Bucket=bucket,
+                    Key=cos_key,
+                    LocalFilePath=str(fpath),
+                    EnableMD5=True
+                )
+                uploaded += 1
+                if uploaded % 50 == 0:
+                    print(f"    已上传 {uploaded} 个文件...")
+            except Exception as e:
+                failed += 1
+                if failed <= 3:
+                    print(f"    [!] 上传失败: {cos_key} -> {e}")
+
+    print(f"  COS上传完成: 新上传 {uploaded}, 跳过 {skipped}, 失败 {failed}")
+    return failed == 0
 
 
 def push_main_repo(msg):
@@ -841,7 +934,7 @@ def cmd_menu():
         print("  5. 添加用户")
         print("  6. 删除用户")
         print("  7. 查看用户列表")
-        print("  8. 推送到 GitHub")
+        print("  8. 推送到 GitHub + COS图片上传")
         print("  9. 退出")
         print("-" * 50)
         choice = input("请选择操作 (1-9): ").strip()
@@ -910,7 +1003,7 @@ def cmd_menu():
             input("\n按回车继续...")
 
         elif choice == "8":
-            print("\n--- 推送到 GitHub ---")
+            print("\n--- 推送到 GitHub + COS图片上传 ---")
             msg = input("输入提交说明 (回车使用默认): ").strip()
             _run(cmd_push, [msg] if msg else [])
             input("\n按回车继续...")

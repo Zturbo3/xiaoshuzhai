@@ -148,14 +148,17 @@
 
   <div class="watermark-layer" id="watermarkLayer"></div>
 
+  <script src="js/cdn_config.js"></script>
   <script>
-    // ── CDN 配置：GitHub Pages 自动使用 jsDelivr CDN ──
+    // ── CDN 配置：GitHub Pages 使用腾讯云COS加载图片 ──
     var CDN_BASE = '';
     (function() {
       var host = window.location.hostname;
       if (host.includes('github.io') || host.includes('github')) {
-        // GitHub Pages 部署 → 图片从 CDN 加载
-        CDN_BASE = 'https://cdn.jsdelivr.net/gh/Zturbo3/xiaoshuzhai-data@main/';
+        // GitHub Pages 部署 → 图片从腾讯云COS加载
+        CDN_BASE = (typeof COS_CDN_BASE !== 'undefined' && COS_CDN_BASE && COS_CDN_BASE !== 'COS_CDN_BASE_PLACEHOLDER')
+          ? COS_CDN_BASE
+          : 'https://cdn.jsdelivr.net/gh/Zturbo3/xiaoshuzhai-data@main/'; // 回退到jsDelivr
       }
       // 本地 / loca.lt / 其他 → CDN_BASE 为空，使用本地相对路径
     })();

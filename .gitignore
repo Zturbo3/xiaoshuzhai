@@ -40,3 +40,9 @@ render.yaml
 
 # 账号本地存储（旧版，已迁移到 data/accounts.json）
 /accounts.json
+
+# 腾讯云COS密钥配置（含敏感信息，禁止提交）
+cos_config.json
+
+# 课件管理VBS
+课件管理.vbs
