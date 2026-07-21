@@ -603,6 +603,24 @@ def upload_images_to_cos():
 
     print(f"  扫描 {len(image_dirs)} 个图片目录...")
 
+    # 优化：先批量列出COS上已有文件，避免逐个head_object检查
+    print("  获取COS已有文件列表...")
+    cos_existing_keys = set()
+    try:
+        marker = ""
+        while True:
+            response = client.list_objects(Bucket=bucket, Prefix="ppts/", Marker=marker, MaxKeys=1000)
+            for item in response.get("Contents", []):
+                cos_existing_keys.add(item["Key"])
+            if response.get("IsTruncated") == "true":
+                marker = response.get("NextMarker", "")
+            else:
+                break
+        print(f"  COS已有 {len(cos_existing_keys)} 个文件")
+    except Exception as e:
+        print(f"  获取COS列表失败: {e}，将逐个检查")
+        cos_existing_keys = None
+
     IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
     uploaded = 0
     skipped = 0
@@ -619,8 +637,13 @@ def upload_images_to_cos():
             rel_path = fpath.relative_to(PPTS_DIR)
             cos_key = "ppts/" + str(rel_path).replace("\\", "/")
 
-            try:
-                # 检查是否已存在
+            # 检查是否已存在（批量列表模式优先）
+            if cos_existing_keys is not None:
+                if cos_key in cos_existing_keys:
+                    skipped += 1
+                    continue
+            else:
+                # 回退到逐个head_object检查
                 try:
                     client.head_object(Bucket=bucket, Key=cos_key)
                     skipped += 1
@@ -628,6 +651,7 @@ def upload_images_to_cos():
                 except Exception:
                     pass
 
+            try:
                 client.upload_file(
                     Bucket=bucket,
                     Key=cos_key,

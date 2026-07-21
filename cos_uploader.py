@@ -66,16 +66,20 @@ def get_cdn_base(config):
     return f"https://{config['bucket']}.cos.{config['region']}.myqcloud.com/"
 
 
-def upload_file(client, bucket, local_path, cos_key, skip_existing=True):
+def upload_file(client, bucket, local_path, cos_key, skip_existing=True, existing_keys=None):
     """上传单个文件到COS，返回是否实际上传"""
     try:
-        # 检查是否已存在（通过HEAD请求）
+        # 检查是否已存在
         if skip_existing:
-            try:
-                client.head_object(Bucket=bucket, Key=cos_key)
-                return False  # 已存在，跳过
-            except Exception:
-                pass  # 不存在，继续上传
+            if existing_keys is not None:
+                if cos_key in existing_keys:
+                    return False  # 已存在，跳过
+            else:
+                try:
+                    client.head_object(Bucket=bucket, Key=cos_key)
+                    return False  # 已存在，跳过
+                except Exception:
+                    pass  # 不存在，继续上传
 
         client.upload_file(
             Bucket=bucket,
@@ -89,7 +93,7 @@ def upload_file(client, bucket, local_path, cos_key, skip_existing=True):
         return False
 
 
-def upload_dir(client, bucket, local_dir, cos_prefix=""):
+def upload_dir(client, bucket, local_dir, cos_prefix="", existing_keys=None):
     """上传整个目录到COS"""
     local_dir = Path(local_dir)
     if not local_dir.exists():
@@ -113,7 +117,7 @@ def upload_dir(client, bucket, local_dir, cos_prefix=""):
             except ValueError:
                 pass
 
-        result = upload_file(client, bucket, fpath, cos_key)
+        result = upload_file(client, bucket, fpath, cos_key, existing_keys=existing_keys)
         if result:
             uploaded += 1
             if uploaded % 50 == 0:
@@ -145,6 +149,24 @@ def cmd_sync(args):
 
     print(f"发现 {len(image_dirs)} 个图片目录\n")
 
+    # 优化：先批量列出COS上已有文件
+    print("获取COS已有文件列表...")
+    existing_keys = set()
+    try:
+        marker = ""
+        while True:
+            response = client.list_objects(Bucket=config["bucket"], Prefix="ppts/", Marker=marker, MaxKeys=1000)
+            for item in response.get("Contents", []):
+                existing_keys.add(item["Key"])
+            if response.get("IsTruncated") == "true":
+                marker = response.get("NextMarker", "")
+            else:
+                break
+        print(f"COS已有 {len(existing_keys)} 个文件\n")
+    except Exception as e:
+        print(f"获取COS列表失败: {e}，将使用逐个检查模式\n")
+        existing_keys = None
+
     total_uploaded = 0
     total_skipped = 0
 
@@ -155,7 +177,7 @@ def cmd_sync(args):
         rel = img_dir.relative_to(PPTS_DIR)
         cos_prefix = "ppts/" + str(rel).replace("\\", "/")
 
-        uploaded, skipped = upload_dir(client, config["bucket"], img_dir, cos_prefix)
+        uploaded, skipped = upload_dir(client, config["bucket"], img_dir, cos_prefix, existing_keys=existing_keys)
         total_uploaded += uploaded
         total_skipped += skipped
         print(f"  上传 {uploaded} 个, 跳过 {skipped} 个")
