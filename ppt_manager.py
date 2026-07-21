@@ -552,6 +552,23 @@ def upload_images_to_cos():
     """上传新增/变更的图片到腾讯云COS"""
     print("\n[2/2] 上传图片到腾讯云COS...")
 
+    # 智能检测：检查最新提交中是否有图片文件变更
+    # 如果只是修改了accounts.json等非图片文件，跳过COS上传
+    try:
+        result = subprocess.run(
+            ["git", "diff", "HEAD~1", "HEAD", "--name-only"],
+            cwd=SCRIPT_DIR, capture_output=True, encoding="utf-8", errors="replace"
+        )
+        if result.returncode == 0:
+            changed_files = result.stdout.strip().split("\n") if result.stdout.strip() else []
+            image_changes = [f for f in changed_files if f.startswith("ppts/") and "_images/" in f]
+            if not image_changes:
+                print("  本次提交无图片变更，跳过COS上传 ✓")
+                return True
+            print(f"  检测到 {len(image_changes)} 个图片文件变更，开始上传...")
+    except Exception:
+        pass  # 检测失败时继续执行正常流程
+
     config_file = SCRIPT_DIR / "cos_config.json"
     if not config_file.exists():
         print("  cos_config.json 不存在，跳过COS上传")
