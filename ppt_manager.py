@@ -35,6 +35,7 @@ import json
 import shutil
 import subprocess
 import base64
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from email.utils import formatdate
@@ -687,6 +688,136 @@ def upload_images_to_cos():
     return failed == 0
 
 
+def push_via_github_api(msg):
+    """通过 GitHub REST API 推送 commit（HTTPS 被墙时的备用方案）"""
+    print("  → 尝试通过 GitHub API 备用推送...")
+
+    # 从 git remote 提取 token 和仓库信息
+    result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=SCRIPT_DIR,
+                            capture_output=True, encoding="utf-8", errors="replace")
+    remote_url = result.stdout.strip()
+    # https://TOKEN@github.com/OWNER/REPO.git
+    token = ""
+    owner = ""
+    repo = ""
+    if remote_url.startswith("https://") and "@github.com/" in remote_url:
+        parts = remote_url.replace("https://", "").split("@github.com/")
+        token = parts[0]
+        repo_part = parts[1].replace(".git", "")
+        parts2 = repo_part.split("/")
+        if len(parts2) >= 2:
+            owner, repo = parts2[0], parts2[1]
+
+    if not token or not owner or not repo:
+        print("  [!] 无法提取 API 凭证，跳过备用推送")
+        return False
+
+    api_base = f"https://api.github.com/repos/{owner}/{repo}"
+    curl_base = ["curl", "-s", "-H", f"Authorization: token {token}",
+                 "-H", "Accept: application/vnd.github+json",
+                 "-H", "User-Agent: ppt_manager"]
+
+    # 获取本地 HEAD
+    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=SCRIPT_DIR,
+                            capture_output=True, encoding="utf-8", errors="replace")
+    local_sha = result.stdout.strip()
+
+    # 获取远程 HEAD
+    try:
+        result = subprocess.run(
+            curl_base + [f"{api_base}/git/ref/heads/main"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+        remote_ref = json.loads(result.stdout)
+        parent_sha = remote_ref.get("object", {}).get("sha", "")
+        if not parent_sha:
+            print("  [!] 无法获取远程 HEAD")
+            return False
+    except Exception as e:
+        print(f"  [!] API 请求失败: {e}")
+        return False
+
+    if local_sha == parent_sha:
+        print("  远程已是最新，无需推送")
+        return True
+
+    print(f"  远程: {parent_sha[:7]} → 本地: {local_sha[:7]}")
+
+    # 获取变更的文件列表
+    result = subprocess.run(
+        ["git", "diff", "--name-only", parent_sha, local_sha],
+        cwd=SCRIPT_DIR, capture_output=True, encoding="utf-8", errors="replace")
+    changed_files = [f for f in result.stdout.strip().split("\n") if f]
+
+    # 获取远程 tree
+    result = subprocess.run(
+        curl_base + [f"{api_base}/git/trees/{parent_sha}?recursive=1"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    remote_tree_data = json.loads(result.stdout)
+    remote_files = {}
+    for item in remote_tree_data.get("tree", []):
+        remote_files[item["path"]] = item
+
+    # 为每个变更的文件创建 blob 并构建新 tree
+    new_tree_entries = []
+    for fpath in changed_files:
+        local_path = SCRIPT_DIR / fpath
+        if not local_path.exists():
+            continue
+        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        blob_payload = json.dumps({"content": content, "encoding": "utf-8"})
+        result = subprocess.run(
+            curl_base + ["-X", "POST", "-d", blob_payload, f"{api_base}/git/blobs"],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+        blob_sha = json.loads(result.stdout).get("sha", "")
+        if blob_sha:
+            new_tree_entries.append({
+                "path": fpath.replace("\\", "/"),
+                "mode": remote_files.get(fpath, {}).get("mode", "100644"),
+                "type": "blob",
+                "sha": blob_sha
+            })
+        print(f"    blob: {fpath}")
+
+    if not new_tree_entries:
+        print("  [!] 没有有效的文件变更")
+        return False
+
+    # 创建新 tree
+    tree_payload = json.dumps({"base_tree": parent_sha, "tree": new_tree_entries})
+    result = subprocess.run(
+        curl_base + ["-X", "POST", "-d", tree_payload, f"{api_base}/git/trees"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    tree_sha = json.loads(result.stdout).get("sha", "")
+
+    # 创建 commit
+    commit_payload = json.dumps({
+        "message": msg,
+        "tree": tree_sha,
+        "parents": [parent_sha]
+    })
+    result = subprocess.run(
+        curl_base + ["-X", "POST", "-d", commit_payload, f"{api_base}/git/commits"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    commit_sha = json.loads(result.stdout).get("sha", "")
+
+    # 更新 ref
+    ref_payload = json.dumps({"sha": commit_sha, "force": False})
+    result = subprocess.run(
+        curl_base + ["-X", "PATCH", "-d", ref_payload, f"{api_base}/git/refs/heads/main"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    ref_resp = json.loads(result.stdout)
+    if ref_resp.get("ref"):
+        print(f"  ✅ API 推送成功! Commit: {commit_sha[:7]}")
+        # 更新本地 remote tracking
+        subprocess.run(["git", "fetch", "origin", "main"], cwd=SCRIPT_DIR,
+                       capture_output=True, timeout=30)
+        return True
+    else:
+        print(f"  [!] API 推送失败: {ref_resp}")
+        return False
+
+
 def push_main_repo(msg):
     """推送代码仓库（不含图片）"""
     print("\n[1/2] 推送主仓库 (代码+配置)...")
@@ -718,11 +849,13 @@ def push_main_repo(msg):
                 print("  主仓库推送成功! (main 分支)")
                 return True
             else:
-                print(f"  git push 失败: {push_result.stderr.strip()}")
-                return False
+                err = push_result.stderr.strip()
+                print(f"  git push 失败: {err[:200]}")
+                # 尝试 API 备用推送
+                return push_via_github_api(msg)
         except subprocess.TimeoutExpired:
-            print("  git push 超时 (120秒)，网络可能不稳定")
-            return False
+            print("  git push 超时，尝试 API 备用推送...")
+            return push_via_github_api(msg)
 
     print(result.stdout)
 
@@ -738,6 +871,7 @@ def push_main_repo(msg):
         return False
 
     # 推送 (尝试 main 再尝试 master)
+    pushed = False
     for branch in ["main", "master"]:
         try:
             result = subprocess.run(
@@ -750,16 +884,24 @@ def push_main_repo(msg):
             )
             if result.returncode == 0:
                 print(f"  主仓库推送成功! ({branch} 分支)")
-                return True
+                pushed = True
+                break
             else:
-                print(f"  git push ({branch}) 失败: {result.stderr.strip()}")
+                err = result.stderr.strip()
+                print(f"  git push ({branch}) 失败: {err[:200]}")
         except subprocess.TimeoutExpired:
-            print(f"  git push ({branch}) 超时 (120秒)，网络可能不稳定")
+            print(f"  git push ({branch}) 超时 (120秒)")
         except Exception as e:
             print(f"  git push ({branch}) 异常: {e}")
 
-    print("  [!] 主仓库推送失败! 课件列表未更新到网站。")
-    return False
+    if not pushed:
+        print("  git push 全部失败，尝试 API 备用推送...")
+        if push_via_github_api(msg):
+            return True
+        print("  [!] 主仓库推送失败! 课件列表未更新到网站。")
+        return False
+
+    return True
 
 
 def push_data_repo(msg):
