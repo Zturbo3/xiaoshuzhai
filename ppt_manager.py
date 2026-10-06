@@ -688,9 +688,35 @@ def upload_images_to_cos():
     return failed == 0
 
 
+def api_post(curl_base, url, payload, timeout=30):
+    """发送 POST/PATCH 请求，载荷写入临时文件（避免 Windows 命令行长度限制）"""
+    method = "POST"
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False,
+                                         encoding="ascii", newline="\n") as tf:
+            json.dump(payload, tf, ensure_ascii=True)
+            tmp_path = tf.name
+        result = subprocess.run(
+            curl_base + ["-X", method, "--data-binary", f"@{tmp_path}", url],
+            capture_output=True, encoding="utf-8", errors="replace", timeout=timeout)
+        return json.loads(result.stdout)
+    finally:
+        try:
+            if tmp_path:
+                os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def push_via_github_api(msg):
-    """通过 GitHub REST API 推送 commit（HTTPS 被墙时的备用方案）"""
-    print("  → 尝试通过 GitHub API 备用推送...")
+    """通过 GitHub REST API 按内容同步推送（HTTPS 被墙 / 历史分叉时的备用方案）
+
+    原理：对比远程 tree 与本地 tree 的每个文件哈希，
+    只上传有差异的文件，然后基于远程 HEAD 创建新 commit 并更新分支。
+    不依赖本地是否拥有远程的提交历史，因此分叉也不会失败。
+    """
+    print("  → 尝试通过 GitHub API 备用推送（内容同步模式）...")
 
     # 从 git remote 提取 token 和仓库信息
     result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=SCRIPT_DIR,
@@ -717,99 +743,127 @@ def push_via_github_api(msg):
                  "-H", "Accept: application/vnd.github+json",
                  "-H", "User-Agent: ppt_manager"]
 
-    # 获取本地 HEAD
-    result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=SCRIPT_DIR,
-                            capture_output=True, encoding="utf-8", errors="replace")
-    local_sha = result.stdout.strip()
-
-    # 获取远程 HEAD
+    # ── 1. 获取远程 HEAD commit ──
     try:
         result = subprocess.run(
             curl_base + [f"{api_base}/git/ref/heads/main"],
             capture_output=True, encoding="utf-8", errors="replace", timeout=30)
         remote_ref = json.loads(result.stdout)
-        parent_sha = remote_ref.get("object", {}).get("sha", "")
-        if not parent_sha:
-            print("  [!] 无法获取远程 HEAD")
+        remote_head = remote_ref.get("object", {}).get("sha", "")
+        if not remote_head:
+            print(f"  [!] 无法获取远程 HEAD: {str(remote_ref)[:200]}")
             return False
     except Exception as e:
         print(f"  [!] API 请求失败: {e}")
         return False
 
-    if local_sha == parent_sha:
-        print("  远程已是最新，无需推送")
+    # ── 2. 获取远程 commit 的 tree（拿到 tree SHA 和文件哈希表）──
+    result = subprocess.run(
+        curl_base + [f"{api_base}/git/commits/{remote_head}"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
+    remote_commit = json.loads(result.stdout)
+    remote_tree_sha = remote_commit.get("tree", {}).get("sha", "")
+    if not remote_tree_sha:
+        print(f"  [!] 无法获取远程 tree: {str(remote_commit)[:200]}")
+        return False
+
+    result = subprocess.run(
+        curl_base + [f"{api_base}/git/trees/{remote_tree_sha}?recursive=1"],
+        capture_output=True, encoding="utf-8", errors="replace", timeout=60)
+    remote_tree_data = json.loads(result.stdout)
+    if remote_tree_data.get("truncated"):
+        print("  [!] 远程文件树过大被截断，改用手动方式处理")
+        return False
+    remote_blobs = {i["path"]: i["sha"] for i in remote_tree_data.get("tree", []) if i["type"] == "blob"}
+    remote_modes = {i["path"]: i.get("mode", "100644") for i in remote_tree_data.get("tree", []) if i["type"] == "blob"}
+
+    # ── 3. 获取本地 tree 的文件哈希表（core.quotepath=false 防止中文路径被转义）──
+    result = subprocess.run(["git", "-c", "core.quotepath=false", "ls-tree", "-r", "HEAD"], cwd=SCRIPT_DIR,
+                            capture_output=True, encoding="utf-8", errors="replace")
+    local_blobs = {}
+    for line in result.stdout.strip().split("\n"):
+        if not line or "\t" not in line:
+            continue
+        meta, path = line.split("\t", 1)
+        sha = meta.split()[2]
+        local_blobs[path] = sha
+
+    # ── 4. 对比差异 ──
+    to_upload = []   # 本地有且内容不同 / 远程没有 → 上传
+    to_delete = []   # 远程有但本地没有 → 删除
+    for path, sha in local_blobs.items():
+        if remote_blobs.get(path) != sha:
+            to_upload.append(path)
+    for path in remote_blobs:
+        if path not in local_blobs:
+            to_delete.append(path)
+
+    if not to_upload and not to_delete:
+        print("  ✅ 远程与本地内容完全一致，无需推送")
         return True
 
-    print(f"  远程: {parent_sha[:7]} → 本地: {local_sha[:7]}")
+    print(f"  远程 HEAD: {remote_head[:7]}，需上传 {len(to_upload)} 个文件，删除 {len(to_delete)} 个文件")
+    for p in to_upload[:10]:
+        print(f"    ↑ {p}")
+    if len(to_upload) > 10:
+        print(f"    ... 等共 {len(to_upload)} 个")
+    for p in to_delete[:5]:
+        print(f"    × {p}")
 
-    # 获取变更的文件列表
-    result = subprocess.run(
-        ["git", "diff", "--name-only", parent_sha, local_sha],
-        cwd=SCRIPT_DIR, capture_output=True, encoding="utf-8", errors="replace")
-    changed_files = [f for f in result.stdout.strip().split("\n") if f]
-
-    # 获取远程 tree
-    result = subprocess.run(
-        curl_base + [f"{api_base}/git/trees/{parent_sha}?recursive=1"],
-        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
-    remote_tree_data = json.loads(result.stdout)
-    remote_files = {}
-    for item in remote_tree_data.get("tree", []):
-        remote_files[item["path"]] = item
-
-    # 为每个变更的文件创建 blob 并构建新 tree
-    new_tree_entries = []
-    for fpath in changed_files:
+    # ── 5. 上传有差异的文件为 blob（base64 编码，兼容任意内容）──
+    tree_entries = []
+    for fpath in to_upload:
         local_path = SCRIPT_DIR / fpath
         if not local_path.exists():
             continue
-        with open(local_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-        blob_payload = json.dumps({"content": content, "encoding": "utf-8"})
-        result = subprocess.run(
-            curl_base + ["-X", "POST", "-d", blob_payload, f"{api_base}/git/blobs"],
-            capture_output=True, encoding="utf-8", errors="replace", timeout=30)
-        blob_sha = json.loads(result.stdout).get("sha", "")
-        if blob_sha:
-            new_tree_entries.append({
-                "path": fpath.replace("\\", "/"),
-                "mode": remote_files.get(fpath, {}).get("mode", "100644"),
-                "type": "blob",
-                "sha": blob_sha
-            })
-        print(f"    blob: {fpath}")
+        with open(local_path, "rb") as f:
+            content_b64 = base64.b64encode(f.read()).decode("ascii")
+        blob_resp = api_post(curl_base, f"{api_base}/git/blobs",
+                             {"content": content_b64, "encoding": "base64"})
+        blob_sha = blob_resp.get("sha", "")
+        if not blob_sha:
+            print(f"  [!] blob 上传失败: {fpath}")
+            return False
+        tree_entries.append({
+            "path": fpath.replace("\\", "/"),
+            "mode": remote_modes.get(fpath, "100644"),
+            "type": "blob",
+            "sha": blob_sha
+        })
 
-    if not new_tree_entries:
-        print("  [!] 没有有效的文件变更")
+    # ── 6. 标记删除的文件（sha 置 null）──
+    for fpath in to_delete:
+        tree_entries.append({
+            "path": fpath.replace("\\", "/"),
+            "mode": remote_modes.get(fpath, "100644"),
+            "type": "blob",
+            "sha": None
+        })
+
+    # ── 7. 基于远程 tree 创建新 tree ──
+    tree_resp = api_post(curl_base, f"{api_base}/git/trees",
+                         {"base_tree": remote_tree_sha, "tree": tree_entries}, timeout=60)
+    new_tree_sha = tree_resp.get("sha", "")
+    if not new_tree_sha:
+        print(f"  [!] 创建 tree 失败: {str(tree_resp)[:200]}")
         return False
 
-    # 创建新 tree
-    tree_payload = json.dumps({"base_tree": parent_sha, "tree": new_tree_entries})
-    result = subprocess.run(
-        curl_base + ["-X", "POST", "-d", tree_payload, f"{api_base}/git/trees"],
-        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
-    tree_sha = json.loads(result.stdout).get("sha", "")
+    # ── 8. 创建 commit（父提交 = 远程 HEAD）──
+    commit_resp = api_post(curl_base, f"{api_base}/git/commits",
+                           {"message": msg, "tree": new_tree_sha, "parents": [remote_head]})
+    commit_sha = commit_resp.get("sha", "")
+    if not commit_sha:
+        print(f"  [!] 创建 commit 失败: {str(commit_resp)[:200]}")
+        return False
 
-    # 创建 commit
-    commit_payload = json.dumps({
-        "message": msg,
-        "tree": tree_sha,
-        "parents": [parent_sha]
-    })
-    result = subprocess.run(
-        curl_base + ["-X", "POST", "-d", commit_payload, f"{api_base}/git/commits"],
-        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
-    commit_sha = json.loads(result.stdout).get("sha", "")
-
-    # 更新 ref
-    ref_payload = json.dumps({"sha": commit_sha, "force": False})
-    result = subprocess.run(
-        curl_base + ["-X", "PATCH", "-d", ref_payload, f"{api_base}/git/refs/heads/main"],
-        capture_output=True, encoding="utf-8", errors="replace", timeout=30)
-    ref_resp = json.loads(result.stdout)
+    # ── 9. 更新分支（force：本地历史与远程可能分叉，但内容已完整合入）──
+    ref_resp = api_post(curl_base, f"{api_base}/git/refs/heads/main",
+                        {"sha": commit_sha, "force": True})
+    ref_resp = {"ref": ref_resp.get("ref")} if isinstance(ref_resp, dict) else {}
     if ref_resp.get("ref"):
-        print(f"  ✅ API 推送成功! Commit: {commit_sha[:7]}")
-        # 更新本地 remote tracking
+        print(f"  ✅ API 内容同步成功! Commit: {commit_sha[:7]}")
+        print("  （本地历史与远程 SHA 可能不同，但文件内容已完全一致）")
+        # 尽力同步本地 remote tracking（失败不影响结果）
         subprocess.run(["git", "fetch", "origin", "main"], cwd=SCRIPT_DIR,
                        capture_output=True, timeout=30)
         return True

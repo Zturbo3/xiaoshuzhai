@@ -4,9 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>课件查看 · 长舟</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Noto+Serif+SC:wght@400;700&display=swap" rel="stylesheet">
+  <!-- 使用系统本地字体，已移除 Google Fonts 以避免国内加载卡顿 -->
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     :root {
@@ -269,6 +267,8 @@
 
         var img = document.createElement('img');
         img.className = 'thumb-img';
+        img.loading = 'lazy';
+        img.decoding = 'async';
         img.src = thumbPath;
         img.alt = '第' + (idx + 1) + '页';
         img.draggable = false;
